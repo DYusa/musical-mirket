@@ -122,5 +122,5 @@ results['with_attention'] = train_model(train_tokens, np.array(train_tags), mode
 
 # Step 7: Named Entity Recognition visualization using spaCy
 nlp = spacy.load('en_core_web_sm')
-text = nlp('Hi, My name is Aman Kharwal \n I am from India \n I want to work with Google \n Steve Jobs is My Inspiration')
+text = nlp('Hi, My name is datawithece \n I am from NL \n I want to work with FinTech to drive impact \n Beyonce is My Inspiration')
 displacy.render(text, style='ent', jupyter=True)
