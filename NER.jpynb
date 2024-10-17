@@ -8,7 +8,8 @@ from keras.preprocessing.sequence import pad_sequences
 from keras.utils import to_categorical
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import LSTM, Embedding, Dense, TimeDistributed, Dropout, Bidirectional
+from tensorflow.keras.layers import LSTM, Embedding, Dense, TimeDistributed, Dropout, Bidirectional, Attention, Input
+from tensorflow.keras.callbacks import EarlyStopping
 import spacy
 from spacy import displacy
 
@@ -79,23 +80,22 @@ def get_pad_train_test_val(data_group, data):
 # Call the function to split the data
 train_tokens, val_tokens, test_tokens, train_tags, val_tags, test_tags = get_pad_train_test_val(data_group, data)
 
-# Step 5: Define the Bi-LSTM and LSTM model
-def get_bilstm_lstm_model(input_dim, output_dim, input_length, n_tags):
-    model = Sequential()
-
-    # Add Embedding layer
-    model.add(Embedding(input_dim=input_dim, output_dim=output_dim, input_length=input_length))
-
-    # Add bidirectional LSTM layer
-    model.add(Bidirectional(LSTM(units=output_dim, return_sequences=True, dropout=0.2, recurrent_dropout=0.2)))
-
-    # Add regular LSTM layer
-    model.add(LSTM(units=output_dim, return_sequences=True, dropout=0.5, recurrent_dropout=0.5))
-
-    # Add time-distributed Dense layer
-    model.add(TimeDistributed(Dense(n_tags, activation="relu")))
-
-    # Compile model with Adam optimizer
+# Step 5: Define the Bi-LSTM with Attention model
+def get_bilstm_attention_model(input_dim, output_dim, input_length, n_tags):
+    inputs = Input(shape=(input_length,))
+    embedding = Embedding(input_dim=input_dim, output_dim=output_dim, input_length=input_length)(inputs)
+    
+    # Bidirectional LSTM
+    lstm_out = Bidirectional(LSTM(units=output_dim, return_sequences=True, dropout=0.2, recurrent_dropout=0.2))(embedding)
+    
+    # Attention Layer
+    attention = Attention()([lstm_out, lstm_out])
+    
+    # Output Layer
+    dense_out = TimeDistributed(Dense(n_tags, activation="softmax"))(attention)
+    
+    # Compile model
+    model = Sequential(inputs=inputs, outputs=dense_out)
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     model.summary()
     
@@ -108,20 +108,17 @@ input_length = max([len(s) for s in data_group['Word_idx'].tolist()])
 n_tags = len(tag2idx)
 
 # Instantiate the model
-model_bilstm_lstm = get_bilstm_lstm_model(input_dim, output_dim, input_length, n_tags)
+model_bilstm_attention = get_bilstm_attention_model(input_dim, output_dim, input_length, n_tags)
 
-# Step 6: Training the model
+# Step 6: Training the model with early stopping
 def train_model(X, y, model):
-    loss = []
-    for i in range(25):
-        # Fit model for one epoch on this sequence
-        hist = model.fit(X, y, batch_size=1000, verbose=1, epochs=1, validation_split=0.2)
-        loss.append(hist.history['loss'][0])
-    return loss
+    early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+    hist = model.fit(X, y, batch_size=32, verbose=1, epochs=25, validation_split=0.2, callbacks=[early_stopping])
+    return hist.history
 
 # Train the model
 results = pd.DataFrame()
-results['with_add_lstm'] = train_model(train_tokens, np.array(train_tags), model_bilstm_lstm)
+results['with_attention'] = train_model(train_tokens, np.array(train_tags), model_bilstm_attention)
 
 # Step 7: Named Entity Recognition visualization using spaCy
 nlp = spacy.load('en_core_web_sm')
